@@ -117,7 +117,7 @@ class ChispaIAApp:
     def _build_tab_analizar(self):
         frame = self.tab_analizar
 
-        ttk.Label(frame, text="Pegá el chat o cargá una captura de pantalla",
+        ttk.Label(frame, text="Pega el chat o carga una captura de pantalla",
                   style="Title.TLabel").pack(anchor="w", pady=(10, 4), padx=4)
 
         input_row = ttk.Frame(frame)
@@ -196,7 +196,7 @@ class ChispaIAApp:
 
         if not chat_text and not self.image_path:
             messagebox.showwarning("Falta información",
-                                    "Pegá texto del chat o cargá una captura de pantalla.")
+                                    "Pega texto del chat o carga una captura de pantalla.")
             return
 
         self.config = config_manager.load_config()
@@ -204,7 +204,7 @@ class ChispaIAApp:
 
         if mode == "online" and not config_manager.has_api_key():
             messagebox.showwarning("Falta API key",
-                                    "Configurá tu API key de Anthropic en la pestaña Configuración.")
+                                    "Configura tu API key de Anthropic en la pestaña Configuración.")
             return
 
         self.generate_btn.config(state="disabled", text="Generando...")
@@ -429,13 +429,13 @@ class ChispaIAApp:
                        "Si no tienes Ollama instalado, descárgalo desde ollama.com/download",
                   style="Muted.TLabel", wraplength=740).pack(anchor="w", padx=12, pady=(4, 10))
 
-        self._refresh_ollama_status()
-
         self.config_status = ttk.Label(frame, text="", style="Muted.TLabel")
         self.config_status.pack(anchor="w", padx=8, pady=6)
 
         ttk.Button(frame, text="💾 Guardar toda la configuración", command=self._save_all_config).pack(
             anchor="w", padx=8, pady=6)
+
+        self._refresh_ollama_status()
 
     def _on_mode_change(self):
         self.config["mode"] = self.mode_radio_var.get()
@@ -445,7 +445,7 @@ class ChispaIAApp:
     def _save_api_key(self):
         key = self.api_key_var.get().strip()
         if not key or key.startswith("•"):
-            messagebox.showinfo("API key", "Ingresá una API key válida.")
+            messagebox.showinfo("API key", "Ingresa una API key válida.")
             return
         config_manager.set_api_key(key)
         self.api_key_var.set("•" * 20)
