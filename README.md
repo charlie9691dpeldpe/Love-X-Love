@@ -44,12 +44,19 @@ al crear un tag `v*` o manualmente desde la pestaña Actions.
 
 ## Notas sobre modo offline
 
-- Necesitás tener Ollama instalado y corriendo (`ollama serve`).
+- **Ya no hace falta usar la terminal.** ChispaIA detecta si Ollama está
+  instalado, lo inicia automáticamente cuando generás una sugerencia, y
+  te deja descargar modelos con una barra de progreso, todo desde la
+  pestaña Configuración.
+- Si Ollama no está instalado, la app te avisa y te dirige a
+  ollama.com/download.
 - Si cargás una captura de pantalla en modo offline, se usa Tesseract OCR
   para extraer el texto antes de mandarlo al modelo local. Instalá
   Tesseract desde: https://github.com/UB-Mannheim/tesseract/wiki
 - La calidad de las sugerencias en modo offline depende del modelo que
   elijas; `llama3.2` o `qwen2.5` son buenos puntos de partida livianos.
+- ChispaIA detiene el proceso de Ollama al cerrarse, pero solo si fue ella
+  quien lo inició (si ya estaba corriendo antes, lo deja como estaba).
 
 ## Estructura del proyecto
 
@@ -58,6 +65,7 @@ chispaia/
 ├── main.py             # punto de entrada
 ├── gui.py               # interfaz Tkinter (dark mode)
 ├── ai_engine.py          # lógica de generación (Claude + Ollama)
+├── ollama_manager.py      # gestión integrada de Ollama (inicio, modelos, descargas)
 ├── ocr_engine.py         # extracción de texto de imágenes (Tesseract)
 ├── config_manager.py     # configuración y API key cifrada
 ├── requirements.txt
