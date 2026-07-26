@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 import ai_engine
 import config_manager
 import ocr_engine
+import ollama_manager
 
 # --- Paleta dark mode ---
 BG = "#1e1e1e"
@@ -156,7 +157,10 @@ class ChispaIAApp:
         self.mode_label.pack(side="left")
 
         self.generate_btn = ttk.Button(frame, text="✨ Generar sugerencias", command=self._on_generate)
-        self.generate_btn.pack(anchor="w", padx=4, pady=(0, 12))
+        self.generate_btn.pack(anchor="w", padx=4, pady=(0, 8))
+
+        self.progress_bar = ttk.Progressbar(frame, mode="indeterminate", length=280)
+        # se empaqueta/oculta dinámicamente en _on_generate / _on_success / _on_error
 
         self.status_label = ttk.Label(frame, text="", style="Muted.TLabel")
         self.status_label.pack(anchor="w", padx=4)
@@ -204,13 +208,24 @@ class ChispaIAApp:
             return
 
         self.generate_btn.config(state="disabled", text="Generando...")
-        self.status_label.config(text="Pensando en las mejores respuestas...")
+        mode_note = " (puede tardar más en modo offline según tu hardware)" if mode == "offline" else ""
+        self.status_label.config(text=f"Pensando en las mejores respuestas...{mode_note}")
+        self.progress_bar.pack(anchor="w", padx=4, pady=(0, 8), before=self.status_label)
+        self.progress_bar.start(12)
         self._clear_results()
 
         threading.Thread(target=self._generate_worker, args=(chat_text, tone, mode), daemon=True).start()
 
     def _generate_worker(self, chat_text, tone, mode):
         try:
+            if mode == "offline" and not ollama_manager.is_ollama_running():
+                self.root.after(0, lambda: self.status_label.config(text="Iniciando Ollama..."))
+                ok, msg = ollama_manager.start_ollama_server()
+                if not ok:
+                    self.root.after(0, lambda: self._on_error(
+                        f"No se pudo iniciar Ollama automáticamente: {msg}"))
+                    return
+
             working_text = chat_text
             image_to_send = self.image_path if mode == "online" else None
 
@@ -231,11 +246,15 @@ class ChispaIAApp:
             self.root.after(0, lambda: self._on_error(f"Error inesperado: {e}"))
 
     def _on_error(self, message):
+        self.progress_bar.stop()
+        self.progress_bar.pack_forget()
         self.generate_btn.config(state="normal", text="✨ Generar sugerencias")
         self.status_label.config(text="")
         messagebox.showerror("Error", message)
 
     def _on_success(self, suggestions, chat_text, tone):
+        self.progress_bar.stop()
+        self.progress_bar.pack_forget()
         self.generate_btn.config(state="normal", text="✨ Generar sugerencias")
         self.status_label.config(text=f"{len(suggestions)} sugerencias generadas.")
         self._render_results(suggestions)
@@ -366,21 +385,51 @@ class ChispaIAApp:
         # Ollama
         ollama_panel = ttk.Frame(frame, style="Panel.TFrame")
         ollama_panel.pack(fill="x", padx=4, pady=(0, 14))
-        ttk.Label(ollama_panel, text="Configuración de Ollama (modo offline)", style="Title.TLabel").pack(
+        ttk.Label(ollama_panel, text="Ollama (modo offline)", style="Title.TLabel").pack(
             anchor="w", padx=12, pady=(10, 4))
 
-        ollama_row = ttk.Frame(ollama_panel, style="Panel.TFrame")
-        ollama_row.pack(fill="x", padx=12, pady=8)
-        ttk.Label(ollama_row, text="Modelo:").pack(side="left")
+        # Estado + iniciar/detener
+        status_row = ttk.Frame(ollama_panel, style="Panel.TFrame")
+        status_row.pack(fill="x", padx=12, pady=(4, 8))
+        self.ollama_status_label = ttk.Label(status_row, text="Estado: sin verificar", style="Muted.TLabel")
+        self.ollama_status_label.pack(side="left")
+        ttk.Button(status_row, text="🔄 Verificar estado", style="Secondary.TButton",
+                   command=self._refresh_ollama_status).pack(side="left", padx=8)
+        self.ollama_start_btn = ttk.Button(status_row, text="▶ Iniciar Ollama", style="Secondary.TButton",
+                                            command=self._start_ollama)
+        self.ollama_start_btn.pack(side="left", padx=4)
+
+        # Modelo instalado a usar
+        model_row = ttk.Frame(ollama_panel, style="Panel.TFrame")
+        model_row.pack(fill="x", padx=12, pady=8)
+        ttk.Label(model_row, text="Modelo a usar:").pack(side="left")
         self.ollama_model_var = tk.StringVar(value=self.config.get("ollama_model", "llama3.2"))
-        tk.Entry(ollama_row, textvariable=self.ollama_model_var, bg=BG_INPUT, fg=FG,
-                 insertbackground=FG, relief="flat", width=20).pack(side="left", ipady=4, padx=(6, 16))
-        ttk.Button(ollama_row, text="Probar conexión", style="Secondary.TButton",
-                   command=self._test_ollama).pack(side="left")
+        self.ollama_model_combo = ttk.Combobox(model_row, textvariable=self.ollama_model_var,
+                                                state="readonly", width=24, values=[])
+        self.ollama_model_combo.pack(side="left", padx=(6, 8))
+        ttk.Button(model_row, text="🔄 Actualizar lista", style="Secondary.TButton",
+                   command=self._refresh_ollama_models).pack(side="left")
+
+        # Descargar modelo nuevo
+        download_row = ttk.Frame(ollama_panel, style="Panel.TFrame")
+        download_row.pack(fill="x", padx=12, pady=(4, 8))
+        ttk.Label(download_row, text="Descargar modelo nuevo:").pack(side="left")
+        self.new_model_var = tk.StringVar(value="llama3.2")
+        tk.Entry(download_row, textvariable=self.new_model_var, bg=BG_INPUT, fg=FG,
+                 insertbackground=FG, relief="flat", width=20).pack(side="left", ipady=4, padx=(6, 8))
+        self.download_btn = ttk.Button(download_row, text="⬇ Descargar", style="Secondary.TButton",
+                                        command=self._download_model)
+        self.download_btn.pack(side="left")
+
+        self.ollama_progress = ttk.Progressbar(ollama_panel, mode="determinate", length=300)
+        self.ollama_progress_label = ttk.Label(ollama_panel, text="", style="Muted.TLabel")
 
         ttk.Label(ollama_panel,
-                  text="Requiere tener Ollama instalado (ollama.com) y corriendo con:  ollama run llama3.2",
-                  style="Muted.TLabel").pack(anchor="w", padx=12, pady=(0, 10))
+                  text="Modelos livianos recomendados: llama3.2, qwen2.5, mistral. "
+                       "Si no tienes Ollama instalado, descárgalo desde ollama.com/download",
+                  style="Muted.TLabel", wraplength=740).pack(anchor="w", padx=12, pady=(4, 10))
+
+        self._refresh_ollama_status()
 
         self.config_status = ttk.Label(frame, text="", style="Muted.TLabel")
         self.config_status.pack(anchor="w", padx=8, pady=6)
@@ -407,6 +456,91 @@ class ChispaIAApp:
         self.root.update_idletasks()
         ok, msg = ai_engine.test_claude_connection()
         self.config_status.config(text=("✓ " if ok else "✗ ") + msg)
+
+    def _refresh_ollama_status(self):
+        if not ollama_manager.is_ollama_installed():
+            self.ollama_status_label.config(text="Estado: ❌ Ollama no está instalado")
+            self.ollama_start_btn.config(state="disabled")
+            return
+
+        running = ollama_manager.is_ollama_running()
+        if running:
+            self.ollama_status_label.config(text="Estado: 🟢 corriendo")
+            self.ollama_start_btn.config(state="disabled")
+            self._refresh_ollama_models()
+        else:
+            self.ollama_status_label.config(text="Estado: 🔴 detenido")
+            self.ollama_start_btn.config(state="normal")
+
+    def _start_ollama(self):
+        self.ollama_status_label.config(text="Estado: iniciando...")
+        self.ollama_start_btn.config(state="disabled")
+        self.root.update_idletasks()
+
+        def worker():
+            ok, msg = ollama_manager.start_ollama_server()
+            self.root.after(0, lambda: self._on_ollama_started(ok, msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_ollama_started(self, ok, msg):
+        self.config_status.config(text=("✓ " if ok else "✗ ") + msg)
+        self._refresh_ollama_status()
+
+    def _refresh_ollama_models(self):
+        models = ollama_manager.list_installed_models()
+        self.ollama_model_combo.config(values=models)
+        if models and self.ollama_model_var.get() not in models:
+            self.ollama_model_var.set(models[0])
+        if not models:
+            self.config_status.config(text="No hay modelos instalados todavía. Descarga uno abajo.")
+
+    def _download_model(self):
+        model_name = self.new_model_var.get().strip()
+        if not model_name:
+            messagebox.showinfo("Modelo", "Escribe el nombre de un modelo, por ejemplo: llama3.2")
+            return
+
+        if not ollama_manager.is_ollama_running():
+            ok, msg = ollama_manager.start_ollama_server()
+            if not ok:
+                messagebox.showerror("Ollama", msg)
+                return
+            self._refresh_ollama_status()
+
+        self.download_btn.config(state="disabled", text="Descargando...")
+        self.ollama_progress.config(value=0)
+        self.ollama_progress.pack(anchor="w", padx=12, pady=(4, 2))
+        self.ollama_progress_label.config(text=f"Iniciando descarga de '{model_name}'...")
+        self.ollama_progress_label.pack(anchor="w", padx=12, pady=(0, 6))
+
+        threading.Thread(target=self._download_model_worker, args=(model_name,), daemon=True).start()
+
+    def _download_model_worker(self, model_name):
+        def progress_callback(status, percent):
+            self.root.after(0, lambda: self._update_download_progress(status, percent))
+
+        try:
+            ollama_manager.pull_model(model_name, progress_callback)
+            self.root.after(0, lambda: self._on_download_done(model_name, True, "Modelo descargado ✓"))
+        except ollama_manager.OllamaManagerError as e:
+            self.root.after(0, lambda: self._on_download_done(model_name, False, str(e)))
+
+    def _update_download_progress(self, status, percent):
+        if percent is not None:
+            self.ollama_progress.config(value=percent)
+            self.ollama_progress_label.config(text=f"{status} — {percent}%")
+        else:
+            self.ollama_progress_label.config(text=status)
+
+    def _on_download_done(self, model_name, ok, msg):
+        self.download_btn.config(state="normal", text="⬇ Descargar")
+        self.ollama_progress_label.config(text=msg)
+        if ok:
+            self._refresh_ollama_models()
+            self.ollama_model_var.set(model_name)
+        else:
+            messagebox.showerror("Descarga de modelo", msg)
 
     def _test_ollama(self):
         self.config["ollama_model"] = self.ollama_model_var.get().strip()
