@@ -143,7 +143,14 @@ def generate_suggestions_offline(chat_text: str, tone: str) -> list:
         response = requests.post(
             f"{host}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
-            timeout=120,
+            timeout=90,
+        )
+    except requests.exceptions.Timeout:
+        raise AIEngineError(
+            "Ollama tardó demasiado en responder (más de 90 segundos). "
+            "Esto suele indicar que está usando la CPU en vez de la GPU. "
+            "Verifica con 'ollama ps' en una terminal si la columna dice CPU o GPU, "
+            "y asegúrate de tener la última versión de Ollama instalada."
         )
     except requests.RequestException as e:
         raise AIEngineError(
